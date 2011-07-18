@@ -13,7 +13,7 @@ namespace Assetic\Filter\Yui;
 
 use Assetic\Asset\AssetInterface;
 use Assetic\Filter\FilterInterface;
-use Assetic\Util\Process;
+use Assetic\Util\ProcessBuilder;
 
 /**
  * Base YUI compressor filter.
@@ -24,7 +24,7 @@ abstract class BaseCompressorFilter implements FilterInterface
 {
     private $jarPath;
     private $javaPath;
-    private $charset = 'utf-8';
+    private $charset;
     private $lineBreak;
 
     public function __construct($jarPath, $javaPath = '/usr/bin/java')
@@ -58,27 +58,35 @@ abstract class BaseCompressorFilter implements FilterInterface
      */
     protected function compress($content, $type, $options = array())
     {
-        // prepend the start of the command
-        $options = array_merge(array(
-            $this->javaPath,
-            '-jar',
-            $this->jarPath,
-            '--type',
-            $type,
-        ), $options);
+        $pb = new ProcessBuilder();
+        $pb
+            ->inheritEnvironmentVariables()
+            ->add($this->javaPath)
+            ->add('-jar')
+            ->add($this->jarPath)
+            ->add('--type')
+            ->add($type)
+        ;
+
+        foreach ($options as $option) {
+            $pb->add($option);
+        }
 
         if (null !== $this->charset) {
-            $options[] = '--charset';
-            $options[] = $this->charset;
+            $pb->add('--charset')->add($this->charset);
         }
 
         if (null !== $this->lineBreak) {
-            $options[] = '--line-break';
-            $options[] = $this->lineBreak;
+            $pb->add('--line-break')->add($this->lineBreak);
         }
 
-        $proc = new Process(implode(' ', array_map('escapeshellarg', $options)), null, array(), $content);
+        $input = tempnam(sys_get_temp_dir(), 'assetic_yui_compressor');
+        file_put_contents($input, $content);
+        $pb->add($input);
+
+        $proc = $pb->getProcess();
         $code = $proc->run();
+        unlink($input);
 
         if (0 < $code) {
             throw new \RuntimeException($proc->getErrorOutput());
